@@ -1,0 +1,481 @@
+#include <Wire.h>
+#include <SoftwareSerial.h>
+#include <LiquidCrystal_I2C.h> // Library for LCD
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+SoftwareSerial sim808(10,11);
+char phone_no1[] = "7032325943"; // replace with your phone no.
+char phone_no[] = "9848689981"; // replace with your phone no.
+String data[5];
+#define DEBUG true
+String state,timegps,latitude,longitude;
+String textMessage;
+39
+const int relay = 16;
+String motorState = "HIGH";
+const int trigPin = 2;
+const int echoPin = 3;
+const int ledPin = 13;
+long duration;
+int distanceCm;
+int safetyDistance;
+//long duration;
+//int distanceCm, distanceInch;
+const int buttonPin = 8;
+const int buttonPin1 = 9;
+const int buttonPin2 = 12;// the number of the pushbutton pin
+const int buzzer = 15;
+int button1State = 0; // variable for reading the pushbutton status
+int button2State = 0; // variable for reading the pushbutton status
+int button3State = 0;
+int serial_in; // variable for reading the pushbutton status
+double x = 0;
+double y = 0;
+double a = 0;
+double b = 0;
+40
+const int sensorPin = A0; //Defines the pin that the anemometer output is connected
+const int numReadings = 2; //Defines number of reading to calculate average windspeed
+int readings[numReadings]; // the readings from the analog input
+int readIndex = 0; // the index of the current reading
+int totalWind= 0; // the running total
+int averageWind = 0; // the average
+int inputPin = A0;
+int sensorValue = 0; //Variable stores the value direct from the analog pin
+float sensorVoltage = 0; //Variable that stores the voltage (in Volts) from the anemometer being
+sent to the analog pin
+float sensorVoltage2 = 0; //Variable that stores the voltage (in Volts) from the anemometer being
+sent to the analog pin
+float windSpeed = 0; // Wind speed in meters per second (m/s)
+float voltageConversionConstant = .004882814; //This constant map the value provided from the
+analog read function, which ranges from 0 to 1023, to actual voltage, which ranges from 0V to
+5V
+int sensorDelay = 2000; //Delay between sensor readings, measured in milliseconds (ms)
+//Anemometer Technical Variables
+//The following variables correspond to the anemometer.
+float voltageMin = .4; // Mininum output voltage from anemometer in mV.
+float windSpeedMin = 0; // Wind speed in meters/sec corresponding to minimum voltage
+float voltageMax = 2.0; // Maximum output voltage from anemometer in mV.
+float windSpeedMax = 32; // Wind speed in meters/sec corresponding to maximum voltage float
+duration, distance;
+41
+//Setup Variables
+void setup()
+{
+ lcd.init();
+ lcd.backlight();
+sim808.begin(19200);
+Serial.begin(9600);
+delay(50);
+lcd.begin(16,2);
+pinMode(trigPin, OUTPUT);
+pinMode(echoPin, INPUT);
+pinMode(ledPin, OUTPUT);
+lcd.print(" Weclome To ");
+lcd.setCursor(0,1);
+lcd.print(" DNR college ");
+delay(2000);
+lcd.clear();
+pinMode(buttonPin, INPUT);
+pinMode(buttonPin1, INPUT);
+pinMode(buttonPin2, INPUT);
+pinMode(relay, OUTPUT);
+42
+Serial.println("SIM808 ready...");
+sim808.print("AT+CSMP=17,167,0,0"); // set this parameter if empty SMS received
+delay(100);
+sim808.print("AT+CMGF=1\r");
+delay(400);
+sendData("AT+CGNSPWR=1",1000,DEBUG);
+delay(50);
+sendData("AT+CGNSSEQ=RMC",1000,DEBUG);
+delay(150);
+sim808.print("AT+CMGF=1\r");
+delay(100);
+// Set module to send SMS data to serial out upon receipt
+sim808.print("AT+CNMI=2,2,0,0,0\r");
+digitalWrite(relay, LOW);
+//Setup LCD display with welcome screen
+for (int thisReading = 0; thisReading < numReadings; thisReading++)
+{
+ readings[thisReading] = 0;
+}
+delay(2500);
+lcd.clear();
+//gpssms();
+43
+}
+void loop()
+{
+ lcd.begin(16,2);
+digitalWrite(trigPin, LOW);
+delayMicroseconds(2);
+digitalWrite(trigPin, HIGH);
+delayMicroseconds(10);
+digitalWrite(trigPin, LOW);
+duration = pulseIn(echoPin, HIGH);
+distanceCm= duration*0.034/2;
+//distanceInch = duration*0.0133/2;
+safetyDistance = distanceCm;
+if (safetyDistance <= 20){
+digitalWrite(ledPin, HIGH);
+lcd.setCursor(0,1);
+lcd.print("Object detected ");
+}
+else{
+digitalWrite(ledPin, LOW);
+}
+lcd.setCursor(1,0);
+44
+Serial.print("Distance: ");lcd.print("Distance: ");
+Serial.print(distanceCm);
+Serial.print("Cm");
+Serial.print("\t");
+lcd.print(distanceCm);
+lcd.print("Cm");
+delay(3000);
+lcd.clear();
+//lcd.clear();
+getgps();
+sendData( "AT+CGNSINF",1000,DEBUG);
+delay(1000);
+button1State = digitalRead(buttonPin);
+button2State = digitalRead(buttonPin1);
+button3State = digitalRead(buttonPin2);
+sensorValue = analogRead(sensorPin);
+if (button1State == HIGH)
+{
+ Serial.println("button1");
+//lcd.begin(0, 0); lcd.print("");
+lcd.clear();
+lcd.setCursor(0, 1);
+45
+lcd.print("help me");
+gpssms();
+gpssms3();
+delay(2000);
+lcd.clear();
+}
+if (button2State == HIGH)
+{
+ Serial.println("button2");
+lcd.clear();
+lcd.setCursor(0, 1);
+lcd.print("emergency");
+gpssms1();
+gpssms4();
+delay(2000);
+lcd.clear();
+}
+if (button3State == HIGH)
+{
+ Serial.println("button3");
+lcd.clear();
+digitalWrite(relay, HIGH);
+46
+lcd.setCursor(0, 1);
+lcd.print("Boat Over Load");
+gpssms2();
+gpssms5();
+delay(2000);
+lcd.clear();
+}
+if(sim808.available()>0)
+{ textMessage = sim808.readString();
+Serial.print(textMessage);
+delay(10);
+}
+if(textMessage.indexOf("HI")>=0){
+// Turn on relay and save current state gpssms();
+delay(200);
+digitalWrite(relay, HIGH);
+motorState = "ON";
+Serial.println("MOTOR IS ON");
+textMessage = "";
+lcd.clear();
+47
+}
+else{
+digitalWrite(relay, LOW);
+digitalWrite(buzzer, LOW);
+totalWind = totalWind - readings[readIndex];
+// read from the sensor:
+readings[readIndex] = sensorValue;
+// add the reading to the total:
+totalWind = totalWind + readings[readIndex];
+// advance to the next position in the array:
+readIndex = readIndex + 1;
+sensorVoltage2 = sensorValue * voltageConversionConstant; //Convert sensor value to actual
+voltage
+// if we're at the end of the array...
+if (readIndex >= numReadings)
+{
+// ...wrap around to the beginning:
+readIndex = 0;
+// calculate the average:
+averageWind = totalWind / numReadings;
+sensorVoltage = averageWind * voltageConversionConstant; //Convert sensor value to actual
+voltage
+48
+//Convert voltage value to wind speed using range of max and min voltages and wind speed for
+the anemometer
+if (sensorVoltage <= voltageMin) {
+windSpeed = 0; //Check if voltage is below minimum value. If so, set wind speed to zero.
+}
+else {
+windSpeed = ((sensorVoltage - voltageMin) * windSpeedMax / (voltageMax -
+voltageMin))*2.232694;
+//For voltages above minimum value, use the linear relationship to calculate wind speed.
+}
+}
+//Print voltage and windspeed to serial
+Serial.print("Voltage: ");
+Serial.print(sensorVoltage);
+Serial.print("Average: ");
+Serial.print(averageWind);
+Serial.print("\t");
+Serial.print("Wind speed: ");
+Serial.println(windSpeed);
+//Display Wind Speed results to LCD with Max wind speed
+lcd.setCursor(0, 0);
+lcd.print("Wind Speed:");
+lcd.print(windSpeed);
+49
+lcd.print("km/h");
+//lcd.setCursor(11, 0);
+//lcd.print("windSpeed");
+delay(1000);
+lcd.clear();
+//lcd.setCursor(0, 1);
+//lcd.print(b);
+//lcd.setCursor(5, 1);
+//lcd.print(readIndex);
+// lcd.setCursor(7, 1);
+// lcd.print("Max=");
+//lcd.setCursor(11, 1);
+// lcd.print(y); delay(sensorDelay); lcd.clear();
+}
+}
+void gpssms()
+{
+sendTabData("AT+CGNSINF",1000,DEBUG);
+if (state !=0)
+{
+ Serial.println("State :"+state);
+Serial.println("Time :"+timegps);
+50
+Serial.println("Latitude :"+latitude);
+Serial.println("Longitude :"+longitude);
+sim808.print("AT+CMGS=\"");
+sim808.print(phone_no);
+sim808.println("\"");
+delay(300);
+sim808.print("Need Help ");
+sim808.print("http://maps.google.com/maps?q=loc:");
+sim808.print(latitude);
+sim808.print(",");
+sim808.print (longitude);
+delay(200);
+sim808.println((char)26); // End AT command with a ^Z, ASCII code 26 delay(200);
+sim808.println();
+delay(20000);
+sim808.flush();
+} else {
+Serial.println("GPS Initialising...");
+}
+}
+51
+void gpssms1()
+{
+ sendTabData("AT+CGNSINF",1000,DEBUG);
+if (state !=0)
+{
+ Serial.println("State :"+state);
+Serial.println("Time :"+timegps);
+Serial.println("Latitude :"+latitude);
+Serial.println("Longitude :"+longitude);
+sim808.print("AT+CMGS=\"");
+sim808.print(phone_no);
+sim808.println("\"");
+delay(300);
+sim808.print("emergency");
+sim808.print("http://maps.google.com/maps?q=loc:");
+sim808.print(latitude);
+sim808.print(",");
+sim808.print (longitude);
+delay(200);
+sim808.println((char)26); // End AT command with a ^Z, ASCII code 26 delay(200);
+sim808.println();
+52
+delay(20000);
+sim808.flush();
+} else {
+Serial.println("GPS Initialising...");
+}
+}
+void gpssms2()
+{ sendTabData("AT+CGNSINF",1000,DEBUG);
+if (state !=0)
+{
+ Serial.println("State :"+state);
+Serial.println("Time :"+timegps);
+Serial.println("Latitude :"+latitude);
+Serial.println("Longitude :"+longitude);
+sim808.print("AT+CMGS=\"");
+sim808.print(phone_no);
+sim808.println("\"");
+delay(300);
+sim808.print("Boat Overload");
+sim808.print("http://maps.google.com/maps?q=loc:");
+sim808.print(latitude);
+sim808.print(",");
+53
+sim808.print (longitude);
+delay(200);
+sim808.println((char)26); // End AT command with a ^Z, ASCII code 26
+delay(200);
+sim808.println();
+delay(20000);
+sim808.flush();
+} else {
+Serial.println("GPS Initialising...");
+}
+}
+void gpssms3()
+{
+ sendTabData("AT+CGNSINF",1000,DEBUG);
+if (state !=0)
+{ Serial.println("State :"+state);
+Serial.println("Time :"+timegps);
+Serial.println("Latitude :"+latitude);
+Serial.println("Longitude :"+longitude);
+sim808.print("AT+CMGS=\"");
+sim808.print(phone_no1);
+54
+sim808.println("\"");
+delay(300);
+sim808.print("Need Help ");
+sim808.print("http://maps.google.com/maps?q=loc:");
+sim808.print(latitude);
+sim808.print(",");
+sim808.print (longitude); delay(200);
+sim808.println((char)26); // End AT command with a ^Z, ASCII code 26 delay(200);
+sim808.println();
+delay(20000);
+sim808.flush();
+} else {
+Serial.println("GPS Initialising...");
+}
+}
+void gpssms4()
+{
+ sendTabData("AT+CGNSINF",1000,DEBUG);
+if (state !=0)
+{
+ Serial.println("State :"+state);
+Serial.println("Time :"+timegps);
+55
+Serial.println("Latitude :"+latitude);
+Serial.println("Longitude :"+longitude);
+sim808.print("AT+CMGS=\"");
+sim808.print(phone_no1);
+sim808.println("\"");
+delay(300);
+sim808.print("emergency");
+sim808.print("http://maps.google.com/maps?q=loc:");
+sim808.print(latitude);
+sim808.print(",");
+sim808.print (longitude); delay(200);
+sim808.println((char)26); // End AT command with a ^Z, ASCII code 26 delay(200);
+sim808.println();
+delay(20000);
+sim808.flush();
+} else {
+Serial.println("GPS Initialising...");
+}
+}
+void gpssms5()
+{
+56
+ sendTabData("AT+CGNSINF",1000,DEBUG);
+if (state !=0)
+{
+ Serial.println("State :"+state);
+Serial.println("Time :"+timegps);
+Serial.println("Latitude :"+latitude);
+Serial.println("Longitude :"+longitude);
+sim808.print("AT+CMGS=\"");
+sim808.print(phone_no1);
+sim808.println("\"");
+delay(300);
+sim808.print("Boat Overload");
+sim808.print("http://maps.google.com/maps?q=loc:");
+sim808.print(latitude);
+sim808.print(",");
+sim808.print (longitude);
+delay(200);
+sim808.println((char)26); // End AT command with a ^Z, ASCII code 26 delay(200);
+sim808.println();
+delay(20000);
+sim808.flush();
+} else {
+57
+Serial.println("GPS Initialising...");
+}
+}
+void sendTabData(String command , const int timeout , boolean debug)
+{
+ sim808.println(command);
+long int time = millis();
+int i = 0;
+while((time+timeout) > millis())
+{
+ while(sim808.available()){
+char c = sim808.read();
+if (c != ',')
+{
+data[i] +=c;
+delay(100);
+}
+else { i++;
+}
+if (i == 5)
+58
+{
+ delay(100);
+ goto exitL;
+}
+}
+}
+exitL:
+if (debug)
+{
+ state = data[1];
+timegps = data[2];
+latitude = data[3];
+longitude =data[4];
+}
+}
+void getgps(void)
+{
+sendData( "AT+CGNSPWR=1",1000,DEBUG);
+sendData( "AT+CGNSSEQ=RMC",1000,DEBUG);
+}
+String sendData(String command, const int timeout, boolean debug)
+59
+{
+String response = "";
+sim808.println(command);
+long int time = millis();
+while( (time+timeout) > millis())
+{
+while(sim808.available())
+{
+char c = sim808.read(); response+=c;
+}
+}
+if(debug)
+{
+Serial.print(response);
+}
+return response;
+}
